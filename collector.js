@@ -69,33 +69,52 @@ function drainQueue(apiUrl, token, maxItems) {
   } catch {}
 }
 
-// ---- HTTP POST ----
+// ---- Google Forms POST ----
+const FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf_YBvK5o-YvrQAuillswvnnyjf96YVkmkU9D5B5GrQ2X7k2Q/formResponse';
+const FORM_ENTRIES = {
+  token: 'entry.1486655132',
+  session_pct: 'entry.2039460777',
+  weekly_pct: 'entry.1328388460',
+  session_resets_at: 'entry.236579146',
+  weekly_resets_at: 'entry.2135486832',
+};
+
 function httpPost(apiUrl, token, data, timeoutMs, callback) {
   try {
-    const url = new URL(apiUrl + '?action=report&auth=' + encodeURIComponent(token));
-    const mod = url.protocol === 'https:' ? https : http;
-    const req = mod.request(url, {
+    const parsed = JSON.parse(data);
+    const params = new URLSearchParams();
+    params.append(FORM_ENTRIES.token, token);
+    if (parsed.session_pct != null) params.append(FORM_ENTRIES.session_pct, String(parsed.session_pct));
+    if (parsed.weekly_pct != null) params.append(FORM_ENTRIES.weekly_pct, String(parsed.weekly_pct));
+    if (parsed.session_resets_at != null) params.append(FORM_ENTRIES.session_resets_at, String(parsed.session_resets_at));
+    if (parsed.weekly_resets_at != null) params.append(FORM_ENTRIES.weekly_resets_at, String(parsed.weekly_resets_at));
+    const body = params.toString();
+
+    const url = new URL(FORM_URL);
+    const req = https.request(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
       timeout: timeoutMs,
     }, (res) => {
       res.on('data', () => {});
-      res.on('end', () => callback(res.statusCode >= 200 && res.statusCode < 300));
+      res.on('end', () => callback(res.statusCode >= 200 && res.statusCode < 400));
     });
     req.on('timeout', () => { req.destroy(); callback(false); });
     req.on('error', () => callback(false));
-    req.write(data);
+    req.write(body);
     req.end();
   } catch { callback(false); }
 }
 
 // ---- 셀프 업데이트 (하루 1회) (T016) ----
-function selfUpdate(apiUrl) {
+const COLLECTOR_UPDATE_URL = 'https://raw.githubusercontent.com/socar-phoenix/claude-usage-tracker/main/collector.js';
+
+function selfUpdate() {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const lastUpdate = fs.existsSync(UPDATE_FILE) ? fs.readFileSync(UPDATE_FILE, 'utf8').trim() : '';
     if (lastUpdate === today) return;
-    const url = new URL(apiUrl + '?action=collector');
+    const url = new URL(COLLECTOR_UPDATE_URL);
     const mod = url.protocol === 'https:' ? https : http;
     const req = mod.get(url, (res) => {
       let body = '';
@@ -136,7 +155,7 @@ process.stdin.on('end', () => {
     if (!fiveHour && !sevenDay) process.exit(0);
 
     // 셀프 업데이트
-    selfUpdate(config.apiUrl);
+    selfUpdate();
 
     // 큐 drain
     drainQueue(config.apiUrl, config.token, 5);
