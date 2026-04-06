@@ -5,7 +5,7 @@ set -e
 
 CONFIG_DIR="$HOME/.config/usage-api-tracker"
 PLIST_PATH="$HOME/Library/LaunchAgents/kr.socar.claude-usage-tracker.plist"
-COLLECTOR_URL="https://raw.githubusercontent.com/socar-phoenix/claude-usage-tracker/main/collector.py"
+COLLECTOR_URL="https://github.com/socar-phoenix/claude-usage-tracker/raw/main/collector.py"
 
 # 언인스톨
 if [ "$1" = "--uninstall" ]; then
