@@ -72,11 +72,11 @@ function drainQueue(apiUrl, token, maxItems) {
 // ---- Google Forms POST ----
 const FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf_YBvK5o-YvrQAuillswvnnyjf96YVkmkU9D5B5GrQ2X7k2Q/formResponse';
 const FORM_ENTRIES = {
-  token: 'entry.1486655132',
-  session_pct: 'entry.2039460777',
-  weekly_pct: 'entry.1328388460',
-  session_resets_at: 'entry.236579146',
-  weekly_resets_at: 'entry.2135486832',
+  token: 'entry.2039460777',
+  session_pct: 'entry.236579146',
+  weekly_pct: 'entry.1074971121',
+  session_resets_at: 'entry.1779805045',
+  weekly_resets_at: 'entry.1545380631',
 };
 
 function httpPost(apiUrl, token, data, timeoutMs, callback) {
