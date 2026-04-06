@@ -157,9 +157,6 @@ process.stdin.on('end', () => {
     // 셀프 업데이트
     selfUpdate();
 
-    // 큐 drain
-    drainQueue(config.apiUrl, config.token, 5);
-
     // 쓰로틀링 체크
     if (!shouldSend()) process.exit(0);
 
@@ -171,22 +168,9 @@ process.stdin.on('end', () => {
       weekly_resets_at: sevenDay ? sevenDay.resets_at : null,
     });
 
-    // 큐에 추가
-    enqueue(payload);
-
     // 전송 시도
     httpPost(config.apiUrl, config.token, payload, 3000, (ok) => {
-      if (ok) {
-        markSent();
-        // 큐에서 방금 넣은 항목 제거
-        try {
-          const qLines = fs.readFileSync(QUEUE_FILE, 'utf8').split('\n').filter(Boolean);
-          const idx = qLines.lastIndexOf(payload);
-          if (idx >= 0) qLines.splice(idx, 1);
-          if (qLines.length === 0 && fs.existsSync(QUEUE_FILE)) fs.unlinkSync(QUEUE_FILE);
-          else if (qLines.length > 0) fs.writeFileSync(QUEUE_FILE, qLines.join('\n') + '\n');
-        } catch {}
-      }
+      if (ok) markSent();
       process.exit(0);
     });
   } catch {
