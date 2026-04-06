@@ -56,10 +56,8 @@ if [ -n "$API_URL" ]; then
   echo -n "$API_URL" > "$CONFIG_DIR/api_url"
 fi
 
-# 3. collector.js 다운로드
-if [ -n "$API_URL" ]; then
-  curl -sL "${API_URL}?action=collector" > "$CONFIG_DIR/collector.js"
-fi
+# 3. collector.js 다운로드 (GitHub raw)
+curl -sL "https://raw.githubusercontent.com/socar-phoenix/claude-usage-tracker/main/collector.js" > "$CONFIG_DIR/collector.js"
 
 # 4. wrapper.sh 복사 (이 스크립트와 같은 디렉토리에 있으면 복사, 아니면 생성)
 cat > "$CONFIG_DIR/wrapper.sh" << 'WRAPPER_EOF'
