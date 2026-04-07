@@ -9,18 +9,25 @@ COLLECTOR_URL="https://github.com/socar-phoenix/claude-usage-tracker/raw/main/co
 
 # 언인스톨
 if [ "$1" = "--uninstall" ]; then
-  echo "🗑  Claude 사용량 API 트래커 제거 중..."
+  echo ""
+  echo "  Claude Usage API Tracker — 제거 중..."
+  echo ""
   launchctl unload "$PLIST_PATH" 2>/dev/null || true
   rm -f "$PLIST_PATH"
   rm -rf "$CONFIG_DIR"
-  echo "✅ 제거 완료!"
+  echo "  ✓ 제거가 완료되었습니다."
+  echo ""
   exit 0
 fi
 
 # 설치
 TOKEN="${1:?Usage: setup.sh <TOKEN>}"
 
-echo "🔧 Claude 사용량 API 트래커 설치 중..."
+echo ""
+echo "╔══════════════════════════════════════╗"
+echo "║  Claude Usage API Tracker — 설치      ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
 
 # 1. config 디렉토리 생성
 mkdir -p "$CONFIG_DIR"
@@ -83,6 +90,11 @@ PLIST_EOF
 launchctl load "$PLIST_PATH"
 
 echo ""
-echo "✅ 설치 완료!"
-echo "📊 5분 간격으로 자동 수집됩니다."
-echo "🗑  제거: bash ~/.config/usage-api-tracker/setup.sh --uninstall"
+echo "══════════════════════════════════════"
+echo "  ✓ 설치가 완료되었습니다!"
+echo ""
+echo "  5분 간격으로 자동 수집됩니다."
+echo ""
+echo "  제거: bash ~/.config/usage-api-tracker/setup.sh --uninstall"
+echo "══════════════════════════════════════"
+echo ""
