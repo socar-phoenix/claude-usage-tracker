@@ -144,7 +144,7 @@ def post_to_forms(token, usage):
         FORM_ENTRIES["session_pct"]: str(int(five_hour.get("utilization", 0) or 0)),
         FORM_ENTRIES["weekly_pct"]: str(int(seven_day.get("utilization", 0) or 0)),
         FORM_ENTRIES["weekly_sonnet_pct"]: str(int(seven_day_sonnet.get("utilization", 0) or 0)),
-        FORM_ENTRIES["extra_used"]: str(int(extra.get("used_credits", 0) or 0)),
+        FORM_ENTRIES["extra_used"]: str(round((extra.get("used_credits", 0) or 0) / 100, 2)),
         FORM_ENTRIES["session_resets_at"]: iso_to_unix(five_hour.get("resets_at", "")),
         FORM_ENTRIES["weekly_resets_at"]: iso_to_unix(seven_day.get("resets_at", "")),
     }).encode()
