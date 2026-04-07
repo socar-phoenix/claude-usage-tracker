@@ -73,7 +73,7 @@ cat > "$PLIST_PATH" << PLIST_EOF
     <string>kr.socar.claude-usage-api-tracker</string>
     <key>ProgramArguments</key>
     <array>
-        <string>PYTHON3_PATH</string>
+        <string>${PYTHON3_PATH}</string>
         <string>${CONFIG_DIR}/collector.py</string>
     </array>
     <key>StartInterval</key>
