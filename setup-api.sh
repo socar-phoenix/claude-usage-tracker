@@ -36,9 +36,10 @@ mkdir -p "$CONFIG_DIR"
 echo -n "$TOKEN" > "$CONFIG_DIR/token"
 chmod 600 "$CONFIG_DIR/token"
 
-# 3. collector.py 다운로드 + setup.sh 자신도 복사
+# 3. collector.py + setup.sh 다운로드
 curl -sL "$COLLECTOR_URL" > "$CONFIG_DIR/collector.py"
-cp "$0" "$CONFIG_DIR/setup.sh" 2>/dev/null || true
+curl -sL "https://github.com/socar-phoenix/claude-usage-tracker/raw/main/setup-api.sh" > "$CONFIG_DIR/setup.sh"
+chmod +x "$CONFIG_DIR/setup.sh"
 
 # 4. cryptography 패키지 확인/설치
 if ! python3 -c "import cryptography" 2>/dev/null; then
