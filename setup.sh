@@ -8,7 +8,9 @@ CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 
 # 언인스톨 모드
 if [ "$1" = "--uninstall" ]; then
-  echo "🗑  Claude Code 사용량 트래커 제거 중..."
+  echo ""
+  echo "  Claude Usage Tracker — 제거 중..."
+  echo ""
 
   # settings.json의 statusLine 원복
   if [ -f "$CLAUDE_SETTINGS" ]; then
@@ -36,7 +38,9 @@ if [ "$1" = "--uninstall" ]; then
   # config 디렉토리 삭제
   rm -rf "$CONFIG_DIR"
 
-  echo "✅ 제거 완료!"
+  echo ""
+  echo "  ✓ 제거가 완료되었습니다."
+  echo ""
   exit 0
 fi
 
@@ -44,7 +48,11 @@ fi
 TOKEN="${1:?Usage: setup.sh <TOKEN> 또는 setup.sh --uninstall}"
 API_URL="${2:-}"
 
-echo "🔧 Claude Code 사용량 트래커 설치 중..."
+echo ""
+echo "╔══════════════════════════════════════╗"
+echo "║  Claude Usage Tracker — 설치 시작     ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
 
 # 1. config 디렉토리 생성
 mkdir -p "$CONFIG_DIR"
@@ -91,7 +99,7 @@ node -e "
 
   // 이미 설치되어 있으면 스킵
   if (s.statusLine && s.statusLine.command && s.statusLine.command.includes('usage-tracker')) {
-    console.log('이미 설치되어 있습니다.');
+    console.log('→ 이미 설치되어 있습니다. 최신 버전으로 업데이트합니다.');
     process.exit(0);
   }
 
@@ -109,5 +117,10 @@ node -e "
 "
 
 echo ""
-echo "✅ 설치 완료!"
-echo "📊 Claude Code를 사용하면 자동으로 사용량이 추적됩니다."
+echo "══════════════════════════════════════"
+echo "  ✓ 설치가 완료되었습니다!"
+echo ""
+echo "  Claude Code 사용 시 자동으로"
+echo "  사용량이 수집됩니다."
+echo "══════════════════════════════════════"
+echo ""
