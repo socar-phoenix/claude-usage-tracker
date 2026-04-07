@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Claude 사용량 수집기 — claude.ai API 기반
-Desktop 세션 쿠키를 이용하여 사용량을 조회하고 Google Forms로 전송
+Claude 사용량 API 트래커 — claude.ai 세션 쿠키 기반 수집기
+macOS Keychain에서 세션 쿠키를 추출하여 claude.ai API로 사용량 조회 후 Google Forms로 전송
 """
 
 import hashlib
@@ -22,13 +22,15 @@ LAST_SENT_FILE = os.path.join(CONFIG_DIR, "last-sent")
 THROTTLE_SEC = 300  # 5분
 
 # Google Forms
-FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSf_YBvK5o-YvrQAuillswvnnyjf96YVkmkU9D5B5GrQ2X7k2Q/formResponse"
+FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSf8o2_qXcTOrTtZQQKzbTxoaOFcglNktWU10DJ9ZOLlocmHYg/formResponse"
 FORM_ENTRIES = {
-    "token": "entry.2039460777",
-    "session_pct": "entry.236579146",
-    "weekly_pct": "entry.1074971121",
-    "session_resets_at": "entry.1779805045",
-    "weekly_resets_at": "entry.1545380631",
+    "token": "entry.1687704276",
+    "session_pct": "entry.54462484",
+    "weekly_pct": "entry.1813634161",
+    "weekly_sonnet_pct": "entry.1921007693",
+    "extra_used": "entry.796315702",
+    "session_resets_at": "entry.185492805",
+    "weekly_resets_at": "entry.1159006916",
 }
 
 # claude.ai
@@ -46,16 +48,13 @@ def get_session_key():
         print("cryptography 패키지가 필요합니다: pip3 install cryptography", file=sys.stderr)
         sys.exit(1)
 
-    # Keychain에서 암호화 키
     key = subprocess.check_output([
         "security", "find-generic-password", "-w",
         "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT
     ]).strip()
 
-    # AES 키 유도
     aes_key = hashlib.pbkdf2_hmac("sha1", key, b"saltysalt", 1003, dklen=16)
 
-    # Cookies DB에서 sessionKey 읽기
     conn = sqlite3.connect(COOKIES_DB)
     row = conn.execute(
         "SELECT encrypted_value FROM cookies WHERE name='sessionKey' AND host_key='.claude.ai'"
@@ -66,13 +65,12 @@ def get_session_key():
         print("sessionKey를 찾을 수 없습니다. Claude Desktop에 로그인되어 있는지 확인하세요.", file=sys.stderr)
         sys.exit(1)
 
-    # v10 복호화
-    encrypted = row[0][3:]  # v10 prefix 제거
+    encrypted = row[0][3:]  # v10 prefix
     cipher = Cipher(algorithms.AES(aes_key), modes.CBC(b" " * 16))
     decryptor = cipher.decryptor()
     decrypted = decryptor.update(encrypted) + decryptor.finalize()
-    decrypted = decrypted[:-decrypted[-1]]  # PKCS7 padding 제거
-    session_key = decrypted[32:].decode("utf-8")  # DB v24: 도메인 해시 제거
+    decrypted = decrypted[:-decrypted[-1]]  # PKCS7 padding
+    session_key = decrypted[32:].decode("utf-8")  # DB v24: 도메인 해시
 
     return session_key
 
@@ -87,9 +85,7 @@ def fetch_usage(session_key):
         "Referer": "https://claude.ai/settings/usage",
     }
 
-    req = urllib.request.Request(
-        f"https://claude.ai/api/organizations/{ORG_UUID}/usage"
-    )
+    req = urllib.request.Request(f"https://claude.ai/api/organizations/{ORG_UUID}/usage")
     for k, v in headers.items():
         req.add_header(k, v)
 
@@ -98,7 +94,7 @@ def fetch_usage(session_key):
 
 
 def read_token():
-    """로컬에 저장된 사용자 토큰 읽기"""
+    """로컬 토큰 읽기"""
     try:
         return open(TOKEN_FILE).read().strip()
     except FileNotFoundError:
@@ -116,39 +112,41 @@ def should_send():
 
 
 def mark_sent():
-    """전송 시점 기록"""
     with open(LAST_SENT_FILE, "w") as f:
         f.write(str(int(time.time() * 1000)))
 
 
+def iso_to_unix(iso_str):
+    """ISO 8601 → unix timestamp"""
+    if not iso_str:
+        return ""
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(iso_str)
+        return str(int(dt.timestamp()))
+    except Exception:
+        return ""
+
+
 def post_to_forms(token, usage):
     """Google Forms로 데이터 전송"""
+    if not FORM_URL or not FORM_ENTRIES["token"]:
+        print("Google Forms URL/entry ID가 설정되지 않았습니다.", file=sys.stderr)
+        return False
+
     five_hour = usage.get("five_hour") or {}
     seven_day = usage.get("seven_day") or {}
-
-    session_pct = five_hour.get("utilization", 0) or 0
-    weekly_pct = seven_day.get("utilization", 0) or 0
-
-    # resets_at을 unix timestamp로 변환
-    session_resets = five_hour.get("resets_at", "")
-    weekly_resets = seven_day.get("resets_at", "")
-
-    def iso_to_unix(iso_str):
-        if not iso_str:
-            return ""
-        try:
-            from datetime import datetime, timezone
-            dt = datetime.fromisoformat(iso_str.replace("+00:00", "+00:00"))
-            return str(int(dt.timestamp()))
-        except:
-            return ""
+    seven_day_sonnet = usage.get("seven_day_sonnet") or {}
+    extra = usage.get("extra_usage") or {}
 
     data = urllib.parse.urlencode({
         FORM_ENTRIES["token"]: token,
-        FORM_ENTRIES["session_pct"]: str(int(session_pct)),
-        FORM_ENTRIES["weekly_pct"]: str(int(weekly_pct)),
-        FORM_ENTRIES["session_resets_at"]: iso_to_unix(session_resets),
-        FORM_ENTRIES["weekly_resets_at"]: iso_to_unix(weekly_resets),
+        FORM_ENTRIES["session_pct"]: str(int(five_hour.get("utilization", 0) or 0)),
+        FORM_ENTRIES["weekly_pct"]: str(int(seven_day.get("utilization", 0) or 0)),
+        FORM_ENTRIES["weekly_sonnet_pct"]: str(int(seven_day_sonnet.get("utilization", 0) or 0)),
+        FORM_ENTRIES["extra_used"]: str(int(extra.get("used_credits", 0) or 0)),
+        FORM_ENTRIES["session_resets_at"]: iso_to_unix(five_hour.get("resets_at", "")),
+        FORM_ENTRIES["weekly_resets_at"]: iso_to_unix(seven_day.get("resets_at", "")),
     }).encode()
 
     req = urllib.request.Request(FORM_URL, data=data)
@@ -157,7 +155,7 @@ def post_to_forms(token, usage):
     try:
         resp = urllib.request.urlopen(req, timeout=10)
         return resp.status < 400
-    except:
+    except Exception:
         return False
 
 
