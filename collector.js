@@ -200,7 +200,7 @@ process.stdin.on('data', (d) => input += d);
 process.stdin.on('end', () => {
   try {
     const config = readConfig();
-    if (!config) process.exit(0);
+    if (!config) return;
 
     // statusLine 유실 감지 (FR-029)
     try {
@@ -218,22 +218,22 @@ process.stdin.on('end', () => {
       data = JSON.parse(input);
     } catch {
       reportError(config.apiUrl, config.token, 'parse_error', 'stdin JSON 파싱 실패');
-      process.exit(0);
+      return;
     }
+
+    // 셀프 업데이트 (비동기 — process.exit 전에 실행해야 콜백이 완료됨)
+    selfUpdate();
 
     // rate_limits 확인
     const rateLimits = data.rate_limits;
-    if (!rateLimits) process.exit(0);
+    if (!rateLimits) return;
 
     const fiveHour = rateLimits.five_hour;
     const sevenDay = rateLimits.seven_day;
-    if (!fiveHour && !sevenDay) process.exit(0);
-
-    // 셀프 업데이트
-    selfUpdate();
+    if (!fiveHour && !sevenDay) return;
 
     // 쓰로틀링 체크
-    if (!shouldSend()) process.exit(0);
+    if (!shouldSend()) return;
 
     // 전송 데이터 구성
     const payload = JSON.stringify({
@@ -246,13 +246,11 @@ process.stdin.on('end', () => {
     // 전송 시도
     httpPost(config.apiUrl, config.token, payload, 3000, (ok) => {
       if (ok) markSent();
-      process.exit(0);
     });
   } catch (err) {
     try {
       const config = readConfig();
       if (config) reportError(config.apiUrl, config.token, 'unexpected', err.message);
     } catch {}
-    process.exit(0);
   }
 });
