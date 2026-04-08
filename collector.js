@@ -7,7 +7,8 @@ const http = require('http');
 const HARD_TIMEOUT = setTimeout(() => process.exit(0), 5000);
 HARD_TIMEOUT.unref();
 
-const CONFIG_DIR = path.join(require('os').homedir(), '.config', 'usage-tracker');
+const HOME_DIR = require('os').homedir();
+const CONFIG_DIR = path.join(HOME_DIR, '.config', 'usage-tracker');
 const THROTTLE_FILE = path.join(CONFIG_DIR, 'last-sent');
 const QUEUE_FILE = path.join(CONFIG_DIR, 'queue.jsonl');
 const UPDATE_FILE = path.join(CONFIG_DIR, '.last-update');
@@ -69,35 +70,78 @@ function drainQueue(apiUrl, token, maxItems) {
   } catch {}
 }
 
-// ---- Google Forms POST ----
-const FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf_YBvK5o-YvrQAuillswvnnyjf96YVkmkU9D5B5GrQ2X7k2Q/formResponse';
-const FORM_ENTRIES = {
-  token: 'entry.2039460777',
-  session_pct: 'entry.236579146',
-  weekly_pct: 'entry.1074971121',
-  session_resets_at: 'entry.1779805045',
-  weekly_resets_at: 'entry.1545380631',
-};
+// ---- 에러 보고 ----
+const ERROR_THROTTLE_FILE = path.join(CONFIG_DIR, '.last-error');
+const ERROR_THROTTLE_MS = 30 * 60 * 1000; // 30분 (에러 폭주 방지)
 
+function shouldReportError() {
+  try {
+    const last = parseInt(fs.readFileSync(ERROR_THROTTLE_FILE, 'utf8').trim(), 10);
+    return Date.now() - last >= ERROR_THROTTLE_MS;
+  } catch { return true; }
+}
+
+function reportError(apiUrl, token, errorCode, errorMessage) {
+  if (!shouldReportError()) return;
+  try { fs.writeFileSync(ERROR_THROTTLE_FILE, String(Date.now())); } catch {}
+  const data = JSON.stringify({
+    type: 'error',
+    error_code: errorCode,
+    error_message: errorMessage,
+  });
+  enqueue(data);
+  httpPost(apiUrl, token, data, 3000, (ok) => {
+    if (ok) {
+      try {
+        if (!fs.existsSync(QUEUE_FILE)) return;
+        const lines = fs.readFileSync(QUEUE_FILE, 'utf8').split('\n').filter(Boolean);
+        const idx = lines.lastIndexOf(data);
+        if (idx >= 0) lines.splice(idx, 1);
+        if (lines.length === 0) fs.unlinkSync(QUEUE_FILE);
+        else fs.writeFileSync(QUEUE_FILE, lines.join('\n') + '\n');
+      } catch {}
+    }
+  });
+}
+
+// ---- Apps Script doPost ----
+// Apps Script /exec는 302 리다이렉트를 반환하므로 수동으로 따라감
 function httpPost(apiUrl, token, data, timeoutMs, callback) {
   try {
-    const parsed = JSON.parse(data);
-    const params = new URLSearchParams();
-    params.append(FORM_ENTRIES.token, token);
-    if (parsed.session_pct != null) params.append(FORM_ENTRIES.session_pct, String(parsed.session_pct));
-    if (parsed.weekly_pct != null) params.append(FORM_ENTRIES.weekly_pct, String(parsed.weekly_pct));
-    if (parsed.session_resets_at != null) params.append(FORM_ENTRIES.session_resets_at, String(parsed.session_resets_at));
-    if (parsed.weekly_resets_at != null) params.append(FORM_ENTRIES.weekly_resets_at, String(parsed.weekly_resets_at));
-    const body = params.toString();
-
-    const url = new URL(FORM_URL);
-    const req = https.request(url, {
+    const url = new URL(apiUrl + '?action=report');
+    // HTTPS만 허용 (토큰 평문 전송 방지)
+    if (url.protocol !== 'https:') { callback(false); return; }
+    const mod = https;
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+    parsed.token = token;
+    const body = JSON.stringify(parsed);
+    const req = mod.request(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
       timeout: timeoutMs,
     }, (res) => {
+      // Apps Script 302 리다이렉트 처리 (POST → GET 전환, 1-hop만 지원)
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+        res.on('data', () => {});
+        res.on('end', () => {
+          try {
+            const locUrl = new URL(res.headers.location, url.href);
+            if (locUrl.protocol !== 'https:') { callback(false); return; }
+            const getReq = https.get(locUrl, { timeout: timeoutMs }, (getRes) => {
+              getRes.on('data', () => {});
+              getRes.on('end', () => callback(getRes.statusCode >= 200 && getRes.statusCode < 300));
+            });
+            getReq.on('timeout', () => { getReq.destroy(); callback(false); });
+            getReq.on('error', () => callback(false));
+          } catch { callback(false); }
+        });
+        return;
+      }
       res.on('data', () => {});
-      res.on('end', () => callback(res.statusCode >= 200 && res.statusCode < 400));
+      res.on('end', () => callback(res.statusCode >= 200 && res.statusCode < 300));
     });
     req.on('timeout', () => { req.destroy(); callback(false); });
     req.on('error', () => callback(false));
@@ -106,27 +150,42 @@ function httpPost(apiUrl, token, data, timeoutMs, callback) {
   } catch { callback(false); }
 }
 
-// ---- 셀프 업데이트 (하루 1회) (T016) ----
+// ---- 셀프 업데이트 (1시간 간격) ----
 const COLLECTOR_UPDATE_URL = 'https://raw.githubusercontent.com/socar-phoenix/claude-usage-tracker/main/collector.js';
+const UPDATE_CHECK_MS = 60 * 60 * 1000; // 1시간
 
 function selfUpdate() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const lastUpdate = fs.existsSync(UPDATE_FILE) ? fs.readFileSync(UPDATE_FILE, 'utf8').trim() : '';
-    if (lastUpdate === today) return;
+    // 1시간 간격 체크
+    const lastCheck = fs.existsSync(UPDATE_FILE)
+      ? parseInt(fs.readFileSync(UPDATE_FILE, 'utf8').trim(), 10)
+      : 0;
+    if (Date.now() - lastCheck < UPDATE_CHECK_MS) return;
+
     const url = new URL(COLLECTOR_UPDATE_URL);
-    const mod = url.protocol === 'https:' ? https : http;
-    const req = mod.get(url, (res) => {
-      let body = '';
-      res.on('data', (d) => body += d);
+    const req = https.get(url, (res) => {
+      const chunks = [];
+      res.on('data', (d) => chunks.push(d));
       res.on('end', () => {
         try {
-          if (res.statusCode === 200 && body.length > 100) {
-            const selfPath = path.join(CONFIG_DIR, 'collector.js');
-            const current = fs.existsSync(selfPath) ? fs.readFileSync(selfPath, 'utf8') : '';
-            if (body.trim() !== current.trim()) fs.writeFileSync(selfPath, body);
+          const body = Buffer.concat(chunks).toString('utf8');
+          // 최소 크기 검증 (부분 수신 방지)
+          if (res.statusCode !== 200 || body.length < 500) return;
+
+          const selfPath = path.join(CONFIG_DIR, 'collector.js');
+          const current = fs.existsSync(selfPath) ? fs.readFileSync(selfPath, 'utf8') : '';
+          if (body.trim() === current.trim()) {
+            // 변경 없음 — 체크 시간만 기록
+            fs.writeFileSync(UPDATE_FILE, String(Date.now()));
+            return;
           }
-          fs.writeFileSync(UPDATE_FILE, today);
+
+          // 원자적 교체: 임시 파일 → rename
+          const tmpPath = selfPath + '.tmp';
+          fs.writeFileSync(tmpPath, body);
+          fs.renameSync(tmpPath, selfPath);
+          // 성공 시에만 체크 시간 기록
+          fs.writeFileSync(UPDATE_FILE, String(Date.now()));
         } catch {}
       });
     });
@@ -143,8 +202,24 @@ process.stdin.on('end', () => {
     const config = readConfig();
     if (!config) process.exit(0);
 
+    // statusLine 유실 감지 (FR-029)
+    try {
+      const settingsPath = path.join(HOME_DIR, '.claude', 'settings.json');
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      const cmd = settings.statusLine && settings.statusLine.command;
+      if (!cmd || !cmd.includes('usage-tracker')) {
+        reportError(config.apiUrl, config.token, 'statusline_lost', 'statusLine 설정 유실');
+      }
+    } catch {}
+
     // stdin JSON 파싱
-    const data = JSON.parse(input);
+    let data;
+    try {
+      data = JSON.parse(input);
+    } catch {
+      reportError(config.apiUrl, config.token, 'parse_error', 'stdin JSON 파싱 실패');
+      process.exit(0);
+    }
 
     // rate_limits 확인
     const rateLimits = data.rate_limits;
@@ -173,7 +248,11 @@ process.stdin.on('end', () => {
       if (ok) markSent();
       process.exit(0);
     });
-  } catch {
+  } catch (err) {
+    try {
+      const config = readConfig();
+      if (config) reportError(config.apiUrl, config.token, 'unexpected', err.message);
+    } catch {}
     process.exit(0);
   }
 });
